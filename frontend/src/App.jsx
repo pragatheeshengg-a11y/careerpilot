@@ -1,9 +1,22 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import "./index.css";
+
+import ApplicationForm from "./components/ApplicationForm.jsx";
+import ApplicationList from "./components/ApplicationList.jsx";
+import AIWorkspace from "./components/AIWorkspace.jsx";
+
+import {
+  listApplications,
+  createApplication,
+  updateApplication,
+  deleteApplication,
+} from "./services/applicationApi.js";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://localhost:5000"
 ).replace(/\/$/, "");
+
+const statuses = ["Wishlist", "Applied", "Interview", "Offer", "Rejected"];
 
 function App() {
   const [mode, setMode] = useState("register");
@@ -11,10 +24,17 @@ function App() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [user, setUser] = useState(null);
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [authMessage, setAuthMessage] = useState("");
+  const [loadingAuth, setLoadingAuth] = useState(false);
 
-  const token = localStorage.getItem("careerpilot_token");
+  const [applications, setApplications] = useState([]);
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+  const [loadingApplications, setLoadingApplications] = useState(false);
+  const [trackerMessage, setTrackerMessage] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [editingApplication, setEditingApplication] = useState(null);
+  const [savingApplication, setSavingApplication] = useState(false);
 
   useEffect(() => {
     const savedToken = localStorage.getItem("careerpilot_token");
@@ -39,20 +59,55 @@ function App() {
 
         setUser(data.user);
       } catch {
-        setMessage("Cannot connect to the backend.");
+        setAuthMessage("Cannot connect to the backend.");
       }
     }
 
     loadUser();
   }, []);
 
-  async function handleSubmit(event) {
-    event.preventDefault();
-    setMessage("");
-    setLoading(true);
+  const loadApplications = useCallback(async () => {
+    const token = localStorage.getItem("careerpilot_token");
 
-    const endpoint =
-      mode === "register" ? "register" : "login";
+    if (!token) return;
+
+    setLoadingApplications(true);
+    setTrackerMessage("");
+
+    try {
+      const data = await listApplications(token, search, status);
+      setApplications(data.applications);
+    } catch (error) {
+      setTrackerMessage(error.message);
+
+      if (
+        error.message === "Invalid or expired token" ||
+        error.message === "Authentication required"
+      ) {
+        localStorage.removeItem("careerpilot_token");
+        setUser(null);
+      }
+    } finally {
+      setLoadingApplications(false);
+    }
+  }, [search, status]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const timer = setTimeout(() => {
+      loadApplications();
+    }, 250);
+
+    return () => clearTimeout(timer);
+  }, [user, loadApplications]);
+
+  async function handleAuthSubmit(event) {
+    event.preventDefault();
+    setAuthMessage("");
+    setLoadingAuth(true);
+
+    const endpoint = mode === "register" ? "register" : "login";
 
     const payload =
       mode === "register"
@@ -60,106 +115,245 @@ function App() {
         : { email, password };
 
     try {
-      const response = await fetch(
-        `${API_URL}/api/auth/${endpoint}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
+      const response = await fetch(`${API_URL}/api/auth/${endpoint}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setMessage(data.message || "Something went wrong.");
+        setAuthMessage(data.message || "Unable to continue.");
         return;
       }
 
       localStorage.setItem("careerpilot_token", data.token);
       setUser(data.user);
       setPassword("");
-      setMessage(data.message);
+      setAuthMessage("");
     } catch {
-      setMessage(
-        "Cannot connect to the backend. Check whether the server is running."
-      );
+      setAuthMessage("Cannot connect to the backend.");
     } finally {
-      setLoading(false);
+      setLoadingAuth(false);
     }
   }
 
   function handleLogout() {
     localStorage.removeItem("careerpilot_token");
     setUser(null);
-    setName("");
-    setEmail("");
+    setApplications([]);
+    setSearch("");
+    setStatus("");
+    setShowForm(false);
+    setEditingApplication(null);
     setPassword("");
-    setMessage("You have logged out.");
+    setAuthMessage("");
+  }
+
+  async function handleSaveApplication(formData) {
+    const token = localStorage.getItem("careerpilot_token");
+
+    if (!token) {
+      throw new Error("Please sign in again.");
+    }
+
+    setSavingApplication(true);
+    setTrackerMessage("");
+
+    try {
+      const payload = {
+        company: formData.company.trim(),
+        jobTitle: formData.jobTitle.trim(),
+        location: formData.location.trim(),
+        jobUrl: formData.jobUrl.trim(),
+        status: formData.status,
+        appliedDate: formData.appliedDate,
+        notes: formData.notes.trim(),
+      };
+
+      if (editingApplication) {
+        await updateApplication(
+          token,
+          editingApplication._id,
+          payload
+        );
+      } else {
+        await createApplication(token, payload);
+      }
+
+      setShowForm(false);
+      setEditingApplication(null);
+
+      await loadApplications();
+    } finally {
+      setSavingApplication(false);
+    }
+  }
+
+  function handleEdit(application) {
+    setEditingApplication(application);
+    setShowForm(true);
+    setTrackerMessage("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
+
+  async function handleDelete(application) {
+    const confirmed = window.confirm(
+      `Delete the application for ${application.jobTitle} at ${application.company}?`
+    );
+
+    if (!confirmed) return;
+
+    const token = localStorage.getItem("careerpilot_token");
+
+    try {
+      setTrackerMessage("");
+
+      await deleteApplication(token, application._id);
+      await loadApplications();
+      setTrackerMessage("Application deleted successfully.");
+    } catch (error) {
+      setTrackerMessage(error.message);
+    }
+  }
+
+  function handleAddClick() {
+    setEditingApplication(null);
+    setShowForm(true);
+    setTrackerMessage("");
+
+    window.scrollTo({
+      top: 0,
+      behavior: "smooth",
+    });
+  }
+
+  function handleCancelForm() {
+    setShowForm(false);
+    setEditingApplication(null);
   }
 
   if (user) {
+    const countByStatus = (item) =>
+      applications.filter((application) => application.status === item).length;
+
     return (
-      <main className="page">
+      <main className="tracker-page">
         <header className="topbar">
           <a className="brand" href="/">
             <span className="brand-icon">C</span>
             CareerPilot
           </a>
 
-          <button className="button button-outline" onClick={handleLogout}>
-            Log out
-          </button>
+          <div className="header-user">
+            <span className="header-user-name">{user.name}</span>
+            <button
+              type="button"
+              className="button button-outline"
+              onClick={() =>
+                document.getElementById("ai-workspace")?.scrollIntoView({
+                  behavior: "smooth",
+                })
+              }
+            >
+              ✦ AI Assistant
+            </button>
+            <button
+              type="button"
+              className="button button-outline"
+              onClick={handleLogout}
+            >
+              Log out
+            </button>
+          </div>
         </header>
 
-        <section className="welcome-card">
-          <span className="eyebrow">YOUR CAREER JOURNEY STARTS HERE</span>
-          <h1>Welcome, {user.name}!</h1>
-          <p>
-            Your CareerPilot account is ready. In the next phases,
-            you will be able to track applications, prepare for
-            interviews, and work with your AI career assistant.
-          </p>
-
-          <div className="profile-row">
-            <span className="avatar">
-              {user.name.charAt(0).toUpperCase()}
-            </span>
+        <div className="tracker-container">
+          <section className="tracker-hero">
             <div>
-              <strong>{user.name}</strong>
-              <p>{user.email}</p>
+              <span className="eyebrow">YOUR CAREER WORKSPACE</span>
+              <h1>Keep your job search moving.</h1>
+              <p>
+                Hi {user.name}, organize opportunities, track progress,
+                and keep your next career move on course.
+              </p>
             </div>
-          </div>
 
-          <div className="feature-grid">
-            <article className="feature-card">
-              <span className="feature-icon">01</span>
-              <h2>Job Tracker</h2>
-              <p>Organize your job applications in one place.</p>
-              <span className="coming-soon">Coming in Phase 2</span>
+            <button
+              type="button"
+              className="button button-primary add-button"
+              onClick={handleAddClick}
+            >
+              + Add application
+            </button>
+          </section>
+
+          <section className="stats-grid" aria-label="Application statistics">
+            <article className="stat-card">
+              <span>Total shown</span>
+              <strong>{applications.length}</strong>
+              <small>Current search results</small>
             </article>
 
-            <article className="feature-card">
-              <span className="feature-icon">02</span>
-              <h2>Gemini AI</h2>
-              <p>Explore job matching and interview preparation.</p>
-              <span className="coming-soon">Coming in Phase 4</span>
+            <article className="stat-card">
+              <span>Applied</span>
+              <strong>{countByStatus("Applied")}</strong>
+              <small>Applications submitted</small>
             </article>
 
-            <article className="feature-card">
-              <span className="feature-icon">03</span>
-              <h2>MCP Tools</h2>
-              <p>Connect your career data to compatible AI clients.</p>
-              <span className="coming-soon">Coming in Phase 5</span>
+            <article className="stat-card">
+              <span>Interviews</span>
+              <strong>{countByStatus("Interview")}</strong>
+              <small>Interview stage</small>
             </article>
-          </div>
 
-          <p className="success-note">
-            <span aria-hidden="true">✓</span> Authentication is working.
-          </p>
-        </section>
+            <article className="stat-card">
+              <span>Offers</span>
+              <strong>{countByStatus("Offer")}</strong>
+              <small>Offers received</small>
+            </article>
+          </section>
+
+          {showForm && (
+            <section className="form-panel tracker-form-panel">
+              <ApplicationForm
+                initialData={editingApplication}
+                onSave={handleSaveApplication}
+                onCancel={handleCancelForm}
+                saving={savingApplication}
+              />
+            </section>
+          )}
+
+          {trackerMessage && (
+            <p className="tracker-message" role="status">
+              {trackerMessage}
+            </p>
+          )}
+
+          <ApplicationList
+            applications={applications}
+            loading={loadingApplications}
+            search={search}
+            setSearch={setSearch}
+            status={status}
+            setStatus={setStatus}
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
+          <AIWorkspace />
+
+          <footer className="tracker-footer">
+            CareerPilot · Your career journey, organized.
+          </footer>
+        </div>
       </main>
     );
   }
@@ -180,8 +374,8 @@ function App() {
             with confidence.
           </h1>
           <p>
-            Track opportunities, prepare for interviews, and bring
-            your job search into one organized workspace.
+            Track opportunities, prepare for interviews, and bring your
+            job search into one organized workspace.
           </p>
 
           <ul className="benefits">
@@ -227,7 +421,7 @@ function App() {
               className={mode === "register" ? "active" : ""}
               onClick={() => {
                 setMode("register");
-                setMessage("");
+                setAuthMessage("");
               }}
             >
               Create account
@@ -238,14 +432,14 @@ function App() {
               className={mode === "login" ? "active" : ""}
               onClick={() => {
                 setMode("login");
-                setMessage("");
+                setAuthMessage("");
               }}
             >
               Sign in
             </button>
           </div>
 
-          <form onSubmit={handleSubmit}>
+          <form onSubmit={handleAuthSubmit}>
             {mode === "register" && (
               <label>
                 Full name
@@ -285,31 +479,27 @@ function App() {
                 minLength={mode === "register" ? 8 : 1}
                 maxLength={72}
                 autoComplete={
-                  mode === "register"
-                    ? "new-password"
-                    : "current-password"
+                  mode === "register" ? "new-password" : "current-password"
                 }
                 required
               />
             </label>
 
-            {message && (
-              <p className="message" role="status">
-                {message}
-              </p>
+            {authMessage && (
+              <p className="message" role="status">{authMessage}</p>
             )}
 
             <button
               className="button button-primary submit-button"
               type="submit"
-              disabled={loading}
+              disabled={loadingAuth}
             >
-              {loading
+              {loadingAuth
                 ? "Please wait..."
                 : mode === "register"
                   ? "Create account"
                   : "Sign in"}
-              {!loading && <span aria-hidden="true"> →</span>}
+              {!loadingAuth && <span aria-hidden="true"> →</span>}
             </button>
           </form>
 
