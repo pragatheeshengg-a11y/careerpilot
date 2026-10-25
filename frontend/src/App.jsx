@@ -4,13 +4,14 @@ import "./index.css";
 import ApplicationForm from "./components/ApplicationForm.jsx";
 import ApplicationList from "./components/ApplicationList.jsx";
 import AIWorkspace from "./components/AIWorkspace.jsx";
+import MCPChat from "./components/MCPChat.jsx";
 
 import {
   listApplications,
   createApplication,
   updateApplication,
   deleteApplication,
-} from "./services/applicationApi.js";
+} from "../../backend/services/applicationApi.js";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://localhost:5000"
@@ -349,6 +350,7 @@ function App() {
             onDelete={handleDelete}
           />
           <AIWorkspace />
+          <MCPChat />
 
           <footer className="tracker-footer">
             CareerPilot · Your career journey, organized.
