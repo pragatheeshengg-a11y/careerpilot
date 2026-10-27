@@ -3,9 +3,14 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
-
+import aiRoutes from "./routes/aiRoutes.js";
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/authRoutes.js";
+import applicationRoutes from "./routes/applicationRoutes.js";
+import mcpWebRoutes from "./routes/mcpWebRoutes.js";
+import mcpChatRoutes from "./routes/mcpChatRoutes.js";
+import careerPilotToolsRoutes from "./routes/careerPilotToolsRoutes.js";
+
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -38,6 +43,7 @@ app.get("/api/health", (req, res) => {
   });
 });
 
+
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 100,
@@ -49,6 +55,11 @@ const authLimiter = rateLimit({
 });
 
 app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/applications", applicationRoutes);
+app.use("/api/ai", aiRoutes);
+app.use("/api/mcp-tools", mcpWebRoutes);
+app.use("/api/mcp-chat", mcpChatRoutes);
+app.use("/api/careerpilot-tools", careerPilotToolsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
