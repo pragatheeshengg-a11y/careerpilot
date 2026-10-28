@@ -1,14 +1,13 @@
+const API_URL = (
+  import.meta.env.VITE_API_URL || "http://localhost:5000"
+).replace(/\/$/, "");
 
-const API_URL = import.meta.env.VITE_API_URL;
-
-async function request(path, options = {}) {
-  const token = localStorage.getItem("careerpilot_token");
-
+async function request(path, token, options = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
   });
@@ -16,28 +15,42 @@ async function request(path, options = {}) {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    throw new Error(data.message || "API request failed");
+    throw new Error(data.message || "Request failed");
   }
 
   return data;
 }
 
-export const listApplications = () =>
-  request("/api/applications");
+export function listApplications(token, search = "", status = "") {
+  const params = new URLSearchParams();
 
-export const createApplication = (application) =>
-  request("/api/applications", {
+  if (search.trim()) params.set("search", search.trim());
+  if (status) params.set("status", status);
+
+  const query = params.toString();
+
+  return request(
+    `/api/applications${query ? `?${query}` : ""}`,
+    token
+  );
+}
+
+export function createApplication(token, application) {
+  return request("/api/applications", token, {
     method: "POST",
     body: JSON.stringify(application),
   });
+}
 
-export const updateApplication = (id, application) =>
-  request(`/api/applications/${id}`, {
+export function updateApplication(token, id, application) {
+  return request(`/api/applications/${id}`, token, {
     method: "PUT",
     body: JSON.stringify(application),
   });
+}
 
-export const deleteApplication = (id) =>
-  request(`/api/applications/${id}`, {
+export function deleteApplication(token, id) {
+  return request(`/api/applications/${id}`, token, {
     method: "DELETE",
   });
+}

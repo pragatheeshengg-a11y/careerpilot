@@ -11,7 +11,7 @@ import {
   createApplication,
   updateApplication,
   deleteApplication,
-} from "../../backend/services/applicationApi.js";
+} from "./services/applicationApi.js";
 
 const API_URL = (
   import.meta.env.VITE_API_URL || "http://localhost:5000"
